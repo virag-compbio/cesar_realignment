@@ -54,7 +54,9 @@ class Alignment:
         alignments_exon_wise_dict = dict()
 
         for species, alignment in alignments_dict.items():
-            ref_seq, query_header, query_seq = alignment.split('\n')    
+            ref_seq, query_header, query_seq = alignment.split('\n')
+            if '>>>' in ref_seq:
+                continue  
 
             alignments_dict_full, alignments_dict = dict(), dict()
             alignment_seqs_list = ref_seq.split()
