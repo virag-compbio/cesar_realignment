@@ -18,8 +18,8 @@ if __name__ == "__main__":
     parser.add_argument("species_list", help = 'A file containing a list of query species', type = str)
     parser.add_argument("two_bit_dir", help = 'Path to two bit diectory that contains two bit files for every query species', type = str)
     parser.add_argument("cesar_dir", help = 'Path to the directory that contains CESAR binary', type = str)
-    parser.add_argument("output_fasta", help = 'Path to the directory that contains CESAR binary', type = str)
-    parser.add_argument("output_annotation", help = 'Path to the directory that contains CESAR binary', type = str)
+    parser.add_argument("output_fasta", help = 'Path to the directory that contains CESAR generated alignments for every input transcript/gene', type = str)
+    parser.add_argument("output_annotation", help = 'Path to the directory that contains the annotation output', type = str)
     parser.add_argument("-l", "--list", help = 'If the input is a list', action = 'store_true') ## if the input is a list of genes
     parser.add_argument('--verbosity', type = int, default = 0,  choices = [0, 1, 2], help=('Level of details to print out along with the progress.'))
 
@@ -79,7 +79,13 @@ if __name__ == "__main__":
             if transcript_id in genes_list:
                 transcripts_info_dict[transcript_id] = '\t'.join(line_list)
 
-    assert len([gene for gene in genes_list if gene in transcripts_info_dict]) == len(genes_list), f'Aborting. Not all the transcripts from the input list are found in the input gene pred file {gene_pred}'
+    if len([gene for gene in genes_list if gene in transcripts_info_dict]) != len(genes_list):
+        print(f'Aborting. Not all the transcripts from the input list are found in the input gene pred file {gene_pred}')
+        for gene in genes_list:
+            if gene not in transcripts_info_dict:
+                print(f'The following transcript {gene} is not present in the master annotation file {gene_pred}')
+        sys.exit()
+        
     if verbosity > 1:
         print("Sanity checks done")
         print(f"The following gene(s) will be subjected to this realignment procedure {genes_list}.")
@@ -153,24 +159,38 @@ if __name__ == "__main__":
             ######################################################
 
             FO.write("####\n")
+            species_for_alignment = 0
             for query_species, query_species_cds in query_cds_dict.items():
                 _,  cds_start, cds_stop, query_strand, query_chr = query_species_cds.split('#') #5235109#5202543#-#JH863841
-                query_sequence = utils.get_sequence_from_2bit(int(cds_start)-500, int(cds_stop)+500, query_chr, two_bit_files_dict[query_species])
 
+                cds_start = int(cds_start) - 500
+                cds_stop  = int(cds_stop) + 500
+
+                if cds_start > cds_stop:
+                    if verbosity > 1:
+                        print(f'Omitting the species {query_species} because the cds_start is greater than the cds_stop {cds_start} > {cds_stop}')
+                        continue
+                    
+                query_sequence = utils.get_sequence_from_2bit(cds_start, cds_stop, query_chr, two_bit_files_dict[query_species])
                 if query_strand != strand:
                     query_sequence = utils.reverse_comp(query_sequence)
                 FO.write(f">{query_species_cds}\n{query_sequence}\n")
+                species_for_alignment += 1
 
         ######################################################################
         ##############               Run CESAR                  ##############
         ######################################################################
+        if species_for_alignment == 0:
+            print("Nothing to run CESAR on!! All query species are problematic - either not on the same scaffold/chromosome or the query locus has some issues with the genome assembly.")
+            continue
+
         if verbosity > 0:
             print('Running CESAR now!!!')
         cesar_call = f'cesar {cesar_input} -x 32'
         cesar_output = utils.run_subprocess(cesar_call, True)
-       
+
         if verbosity > 0:
-            print("CESAR run finished\n")
+            print(f"CESAR run finished. This was the call {cesar_call}\n")
 
         ### process CESAR's output
         alignments_obj = Alignment(cesar_output, output_fasta, reference)
